@@ -3,12 +3,12 @@ import json
 import asyncio
 import aiohttp
 
-# --- 配置参数 (根据你的实际文件名调整) ---
+# --- 配置参数 ---
 CONCURRENT_CHECKS = 20      # 同时检测的并发数
 CHECK_TIMEOUT = 15          # 每个源的检测超时时间（秒）
 MIN_BITRATE = 500           # 最小码率要求 (kbps)
-OUTPUT_FILE = "live.m3u"    # 最终生成的文件名
-INPUT_SOURCE = "live.txt"   # ⚠️ 重要：改成 main.py 生成的文件名
+OUTPUT_FILE = "live.m3u"    # 最终生成的有效源文件
+INPUT_SOURCE = "live.txt"   # ✅ 改成 main.py 生成的文件名
 # ------------------------------------
 
 async def check_stream(session, url):
