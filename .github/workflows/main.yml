@@ -40,33 +40,51 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-    # ===== 新增：安装ffmpeg用于流检测 =====
+    # 安装ffmpeg用于流检测
     - name: Install ffmpeg for stream validation
       run: |
         sudo apt-get update
         sudo apt-get install -y ffmpeg
 
-    # ===== 新增：安装validator.py需要的额外依赖 =====
+    # 安装validator.py需要的额外依赖
     - name: Install validation dependencies
       run: |
         pip install aiohttp
 
-    # 5. 主脚本执行（生成原始源列表）
+    # 5. 主脚本执行（生成 live.txt）
     - name: Execute update script
       run: python main.py
       env:
         TZ: Asia/Shanghai
 
-    # ===== 新增：运行有效性检测脚本 =====
+    # 6. 检查 live.txt 是否生成成功
+    - name: Check if live.txt exists
+      run: |
+        if [ -f "live.txt" ]; then
+          echo "✅ live.txt 生成成功，行数：$(wc -l < live.txt)"
+          echo "前5行预览："
+          head -5 live.txt
+        else
+          echo "❌ 错误：live.txt 未生成！"
+          exit 1
+        fi
+
+    # 7. 运行有效性检测脚本（读取 live.txt，生成 live.m3u）
     - name: Run stream validation
       run: |
         echo "🔍 开始检测直播源有效性..."
         python validator.py
         echo "✅ 检测完成！"
-        echo "有效源数量：$(grep -c '^http' live.m3u || echo 0)"
-        echo "失效源数量：$(wc -l < invalid_sources.log || echo 0)"
+        if [ -f "live.m3u" ]; then
+          echo "有效源数量：$(grep -c '^http' live.m3u || echo 0)"
+        else
+          echo "⚠️ 警告：live.m3u 未生成"
+        fi
+        if [ -f "invalid_sources.log" ]; then
+          echo "失效源数量：$(wc -l < invalid_sources.log)"
+        fi
 
-    # 6. 智能提交优化（包含所有生成的文件）
+    # 8. 智能提交优化（包含所有生成的文件）
     - name: Commit & Push Changes
       if: always()
       run: |
@@ -78,7 +96,11 @@ jobs:
           git commit -m "AutoUpdate: $(date +'%Y-%m-%d %H:%M:%S') [validated]"
           git pull --rebase
           git push origin main
-          echo "✅ Changes pushed (包含有效源文件 live.m3u)"
+          echo "✅ Changes pushed (包含 live.txt 和 live.m3u)"
+          
+          # 显示文件大小信息
+          echo "📊 文件大小："
+          ls -lh live.txt live.m3u 2>/dev/null || echo "文件查看失败"
         else
           echo "📭 No changes"
         fi
