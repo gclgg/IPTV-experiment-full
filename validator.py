@@ -2,20 +2,30 @@ import subprocess
 import json
 import asyncio
 import aiohttp
+import sys
 
 # --- 配置参数 ---
-CONCURRENT_CHECKS = 20      # 同时检测的并发数
-CHECK_TIMEOUT = 15          # 每个源的检测超时时间（秒）
-MIN_BITRATE = 500           # 最小码率要求 (kbps)
-OUTPUT_FILE = "live.m3u"    # 最终生成的有效源文件
-INPUT_SOURCE = "live.txt"   # ✅ 改成 main.py 生成的文件名
+CONCURRENT_CHECKS = 5      # 降低并发数
+CHECK_TIMEOUT = 30         # 增加超时
+MIN_BITRATE = 500
+OUTPUT_FILE = "live.m3u"
+INPUT_SOURCE = "live.txt"
 # ------------------------------------
 
 async def check_stream(session, url):
     """使用 ffprobe 快速探测流信息，返回是否可用和分辨率"""
+    # 先尝试用 HEAD 请求检查可达性（可选）
+    try:
+        async with session.head(url, timeout=10, allow_redirects=True) as resp:
+            if resp.status not in [200, 302]:
+                return {"url": url, "valid": False, "reason": f"HTTP {resp.status}"}
+    except Exception as e:
+        return {"url": url, "valid": False, "reason": f"HEAD failed: {str(e)}"}
+
     cmd = [
         'ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams',
         '-rw_timeout', f'{CHECK_TIMEOUT * 1000000}',
+        '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',  # 添加 UA
         '-i', url
     ]
     
@@ -29,7 +39,8 @@ async def check_stream(session, url):
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=CHECK_TIMEOUT)
         
         if process.returncode != 0:
-            return {"url": url, "valid": False, "reason": "ffprobe failed"}
+            error_msg = stderr.decode()[:200] if stderr else "ffprobe failed"
+            return {"url": url, "valid": False, "reason": f"ffprobe error: {error_msg}"}
         
         data = json.loads(stdout)
         
@@ -59,13 +70,22 @@ async def check_stream(session, url):
         return {"url": url, "valid": False, "reason": str(e)}
 
 async def main():
-    # 注意：这里需要你的原始源列表文件 sources.txt
-    # 我们稍后会处理这个文件
+    # 读取源列表，过滤空行和注释行
     with open(INPUT_SOURCE, 'r') as f:
-        urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+        lines = [line.strip() for line in f if line.strip()]
+        # 简单过滤：只保留以 http 开头的行
+        urls = [line for line in lines if line.startswith('http')]
     
-    print(f"总共读取到 {len(urls)} 个源，开始检测有效性...")
+    print(f"总共读取到 {len(urls)} 个 http 源（总行数 {len(lines)}）")
     
+    if not urls:
+        print("警告：没有找到任何以 http 开头的 URL，请检查 live.txt 格式")
+        # 打印前5行原始内容以便调试
+        with open(INPUT_SOURCE, 'r') as f:
+            sample = [next(f) for _ in range(5)]
+        print("live.txt 前5行：", sample)
+        return
+
     async with aiohttp.ClientSession() as session:
         semaphore = asyncio.Semaphore(CONCURRENT_CHECKS)
         
@@ -80,6 +100,12 @@ async def main():
     invalid_streams = [r for r in results if not r['valid']]
     
     print(f"检测完成。有效源: {len(valid_streams)}，无效源: {len(invalid_streams)}")
+    
+    # 打印部分失败原因
+    if invalid_streams:
+        print("前10个失败原因示例：")
+        for i, inv in enumerate(invalid_streams[:10]):
+            print(f"  {inv['url'][:80]}... : {inv.get('reason', 'unknown')}")
     
     valid_streams.sort(key=lambda x: x.get('height', 0), reverse=True)
     
