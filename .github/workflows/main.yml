@@ -2,8 +2,8 @@ name: Scheduled Auto Update
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # 每6小时的0分触发（即整点执行）
-  workflow_dispatch:  # 允许手动触发
+    - cron: '0 */6 * * *'  # 每6小时触发一次
+  workflow_dispatch:        # 允许手动触发
 
 jobs:
   auto-update:
@@ -11,100 +11,100 @@ jobs:
     timeout-minutes: 15
     
     permissions:
-      contents: write  # 必须开启写入权限
+      contents: write
 
     steps:
-    # 1. 带权限的代码检出
-    - name: Checkout with PAT
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        persist-credentials: true
+      # 1. 检出代码
+      - name: Checkout with PAT
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
 
-    # 2. 自动生成requirements.txt（关键修复）
-    - name: Generate requirements.txt
-      run: |
-        pip install pipreqs
-        pipreqs ./ --encoding=utf8 --force
-        
-    # 3. Python环境配置
-    - name: Setup Python 3.10
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-        cache: 'pip'  # 自动缓存依赖
-
-    # 4. 安装依赖（带镜像源）
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-    # 安装ffmpeg用于流检测
-    - name: Install ffmpeg for stream validation
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
-
-    - name: Test ffprobe with a known working stream
-  run: |
-    ffprobe -v quiet -print_format json -show_streams -i http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8 || echo "ffprobe test failed"
-
-    # 安装validator.py需要的额外依赖
-    - name: Install validation dependencies
-      run: |
-        pip install aiohttp
-
-    # 5. 主脚本执行（生成 live.txt）
-    - name: Execute update script
-      run: python main.py
-      env:
-        TZ: Asia/Shanghai
-
-    # 6. 检查 live.txt 是否生成成功
-    - name: Check if live.txt exists
-      run: |
-        if [ -f "live.txt" ]; then
-          echo "✅ live.txt 生成成功，行数：$(wc -l < live.txt)"
-          echo "前5行预览："
-          head -5 live.txt
-        else
-          echo "❌ 错误：live.txt 未生成！"
-          exit 1
-        fi
-
-    # 7. 运行有效性检测脚本（读取 live.txt，生成 live.m3u）
-    - name: Run stream validation
-      run: |
-        echo "🔍 开始检测直播源有效性..."
-        python validator.py
-        echo "✅ 检测完成！"
-        if [ -f "live.m3u" ]; then
-          echo "有效源数量：$(grep -c '^http' live.m3u || echo 0)"
-        else
-          echo "⚠️ 警告：live.m3u 未生成"
-        fi
-        if [ -f "invalid_sources.log" ]; then
-          echo "失效源数量：$(wc -l < invalid_sources.log)"
-        fi
-
-    # 8. 智能提交优化（包含所有生成的文件）
-    - name: Commit & Push Changes
-      if: always()
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        
-        if [ -n "$(git status --porcelain)" ]; then
-          git add .
-          git commit -m "AutoUpdate: $(date +'%Y-%m-%d %H:%M:%S') [validated]"
-          git pull --rebase
-          git push origin main
-          echo "✅ Changes pushed (包含 live.txt 和 live.m3u)"
+      # 2. 自动生成 requirements.txt（如需要）
+      - name: Generate requirements.txt
+        run: |
+          pip install pipreqs
+          pipreqs ./ --encoding=utf8 --force
           
-          # 显示文件大小信息
-          echo "📊 文件大小："
-          ls -lh live.txt live.m3u 2>/dev/null || echo "文件查看失败"
-        else
-          echo "📭 No changes"
-        fi
+      # 3. 设置 Python 环境
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      # 4. 安装 Python 依赖
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+      # 5. 安装 ffmpeg（用于流检测）
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      # 6. 测试 ffprobe 是否正常工作（使用 Apple 测试流）
+      - name: Test ffprobe with known stream
+        run: |
+          ffprobe -v quiet -print_format json -show_streams \
+            -i http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8 \
+            || echo "ffprobe test failed (but continuing)"
+
+      # 7. 安装 validator.py 需要的额外依赖
+      - name: Install validation dependencies
+        run: |
+          pip install aiohttp
+
+      # 8. 执行主脚本（生成 live.txt）
+      - name: Execute update script
+        run: python main.py
+        env:
+          TZ: Asia/Shanghai
+
+      # 9. 检查 live.txt 是否生成
+      - name: Check live.txt
+        run: |
+          if [ -f "live.txt" ]; then
+            echo "✅ live.txt 生成成功，行数：$(wc -l < live.txt)"
+            echo "前5行预览："
+            head -5 live.txt
+          else
+            echo "❌ 错误：live.txt 未生成！"
+            exit 1
+          fi
+
+      # 10. 运行有效性检测脚本
+      - name: Run stream validation
+        run: |
+          echo "🔍 开始检测直播源有效性..."
+          python validator.py
+          echo "✅ 检测完成！"
+          if [ -f "live.m3u" ]; then
+            echo "有效源数量：$(grep -c '^http' live.m3u || echo 0)"
+          else
+            echo "⚠️ 警告：live.m3u 未生成"
+          fi
+          if [ -f "invalid_sources.log" ]; then
+            echo "失效源数量：$(wc -l < invalid_sources.log)"
+          fi
+
+      # 11. 提交并推送更改
+      - name: Commit & Push Changes
+        if: always()
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "AutoUpdate: $(date +'%Y-%m-%d %H:%M:%S') [validated]"
+            git pull --rebase
+            git push origin main
+            echo "✅ Changes pushed (包含 live.txt 和 live.m3u)"
+            ls -lh live.txt live.m3u 2>/dev/null || echo "文件查看失败"
+          else
+            echo "📭 No changes"
+          fi
