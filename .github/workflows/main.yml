@@ -46,6 +46,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y ffmpeg
 
+    - name: Test ffprobe with a known working stream
+  run: |
+    ffprobe -v quiet -print_format json -show_streams -i http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8 || echo "ffprobe test failed"
+
     # 安装validator.py需要的额外依赖
     - name: Install validation dependencies
       run: |
