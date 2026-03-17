@@ -2,9 +2,8 @@ name: Scheduled Auto Update
 
 on:
   schedule:
-   - cron: '0 */6 * * *'  # 每6小时的0分触发（即整点执行）
-  workflow_dispatch:
-
+    - cron: '0 */6 * * *'  # 每6小时的0分触发（即整点执行）
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   auto-update:
@@ -41,13 +40,33 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-    # 5. 主脚本执行
+    # ===== 新增：安装ffmpeg用于流检测 =====
+    - name: Install ffmpeg for stream validation
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+
+    # ===== 新增：安装validator.py需要的额外依赖 =====
+    - name: Install validation dependencies
+      run: |
+        pip install aiohttp
+
+    # 5. 主脚本执行（生成原始源列表）
     - name: Execute update script
       run: python main.py
       env:
         TZ: Asia/Shanghai
 
-    # 6. 智能提交优化
+    # ===== 新增：运行有效性检测脚本 =====
+    - name: Run stream validation
+      run: |
+        echo "🔍 开始检测直播源有效性..."
+        python validator.py
+        echo "✅ 检测完成！"
+        echo "有效源数量：$(grep -c '^http' live.m3u || echo 0)"
+        echo "失效源数量：$(wc -l < invalid_sources.log || echo 0)"
+
+    # 6. 智能提交优化（包含所有生成的文件）
     - name: Commit & Push Changes
       if: always()
       run: |
@@ -56,10 +75,10 @@ jobs:
         
         if [ -n "$(git status --porcelain)" ]; then
           git add .
-          git commit -m "AutoUpdate: $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "AutoUpdate: $(date +'%Y-%m-%d %H:%M:%S') [validated]"
           git pull --rebase
           git push origin main
-          echo "Changes pushed"
+          echo "✅ Changes pushed (包含有效源文件 live.m3u)"
         else
-          echo "No changes"
+          echo "📭 No changes"
         fi
