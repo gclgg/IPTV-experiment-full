@@ -108,10 +108,14 @@ async def fetch_hotel_source():
         return {}
 
 async def fast_check(session, clean_url):
+    print(f"快速检测: {clean_url}") # 添加这一行，看看是哪些URL在检测
     try:
         async with session.head(clean_url, timeout=FAST_CHECK_TIMEOUT, allow_redirects=True) as resp:
-            return resp.status in [200, 301, 302, 307, 308]
-    except:
+            is_ok = resp.status in [200, 301, 302, 307, 308]
+            print(f"结果: {is_ok}, 状态码: {resp.status}") # 打印状态码
+            return is_ok
+    except Exception as e:
+        print(f"异常: {clean_url}, 错误: {type(e).__name__}") # 打印异常类型
         return False
 
 async def check_channel(session, channel):
