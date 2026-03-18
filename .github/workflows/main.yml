@@ -8,7 +8,7 @@ on:
 jobs:
   auto-update:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45     # 增加到45分钟，确保足够时间检测1300+个源
     
     permissions:
       contents: write
@@ -46,12 +46,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      # 6. 测试 ffprobe 是否正常工作（使用 Apple 测试流）
+      # 6. 测试 ffprobe 是否正常工作（可选，失败不影响后续）
       - name: Test ffprobe with known stream
         run: |
           ffprobe -v quiet -print_format json -show_streams \
             -i http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8 \
             || echo "ffprobe test failed (but continuing)"
+        continue-on-error: true
 
       # 7. 安装 validator.py 需要的额外依赖
       - name: Install validation dependencies
@@ -64,31 +65,46 @@ jobs:
         env:
           TZ: Asia/Shanghai
 
-      # 9. 检查 live.txt 是否生成
+      # 9. 检查 live.txt 是否生成并显示统计信息
       - name: Check live.txt
         run: |
           if [ -f "live.txt" ]; then
-            echo "✅ live.txt 生成成功，行数：$(wc -l < live.txt)"
+            TOTAL_LINES=$(wc -l < live.txt)
+            echo "✅ live.txt 生成成功，总行数：$TOTAL_LINES"
             echo "前5行预览："
             head -5 live.txt
+            echo "后5行预览："
+            tail -5 live.txt
           else
             echo "❌ 错误：live.txt 未生成！"
             exit 1
           fi
 
-      # 10. 运行有效性检测脚本
+      # 10. 运行优化版有效性检测脚本
       - name: Run stream validation
         run: |
-          echo "🔍 开始检测直播源有效性..."
+          echo "🔍 开始检测直播源有效性（优化版-两阶段检测）..."
+          START_TIME=$(date +%s)
           python validator.py
-          echo "✅ 检测完成！"
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          echo "✅ 检测完成！总耗时：$((DURATION / 60)) 分 $((DURATION % 60)) 秒"
+          
+          # 统计结果
           if [ -f "live.m3u" ]; then
-            echo "有效源数量：$(grep -c '^http' live.m3u || echo 0)"
+            VALID_COUNT=$(grep -c '^#EXTINF' live.m3u || echo 0)
+            echo "有效源数量：$VALID_COUNT"
+            
+            # 显示分组统计
+            echo "分组统计："
+            grep 'group-title=' live.m3u | sed 's/.*group-title="\([^"]*\)".*/\1/' | sort | uniq -c | sort -rn
           else
             echo "⚠️ 警告：live.m3u 未生成"
           fi
+          
           if [ -f "invalid_sources.log" ]; then
-            echo "失效源数量：$(wc -l < invalid_sources.log)"
+            INVALID_COUNT=$(wc -l < invalid_sources.log)
+            echo "失效源数量：$INVALID_COUNT"
           fi
 
       # 11. 提交并推送更改
@@ -98,13 +114,24 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
+          # 检查是否有文件变更
           if [ -n "$(git status --porcelain)" ]; then
             git add .
-            git commit -m "AutoUpdate: $(date +'%Y-%m-%d %H:%M:%S') [validated]"
-            git pull --rebase
+            
+            # 生成带统计信息的提交信息
+            VALID_COUNT=$(grep -c '^#EXTINF' live.m3u 2>/dev/null || echo 0)
+            INVALID_COUNT=$(wc -l < invalid_sources.log 2>/dev/null || echo 0)
+            
+            git commit -m "AutoUpdate: $(date +'%Y-%m-%d %H:%M:%S') [有效:$VALID_COUNT 无效:$INVALID_COUNT]"
+            
+            # 拉取最新变更并推送
+            git pull --rebase origin main
             git push origin main
-            echo "✅ Changes pushed (包含 live.txt 和 live.m3u)"
-            ls -lh live.txt live.m3u 2>/dev/null || echo "文件查看失败"
+            echo "✅ 更改已推送（有效源：$VALID_COUNT，失效源：$INVALID_COUNT）"
+            
+            # 显示生成的文件大小
+            echo "生成的文件："
+            ls -lh live.txt live.m3u invalid_sources.log 2>/dev/null || echo "部分文件查看失败"
           else
-            echo "📭 No changes"
+            echo "📭 没有文件变更"
           fi
