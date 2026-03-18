@@ -58,14 +58,12 @@ def parse_txt_file(filename):
             if not line:
                 continue
             if line.endswith('#genre#'):
-                # 清理分组名中的逗号
                 current_group = clean_group_name(line[:-7].strip())
                 continue
             if ',' in line:
                 parts = line.split(',', 1)
                 channel_name = parts[0].strip()
                 full_url = parts[1].strip()
-                # 提取纯净URL（去掉$后面的参数）
                 clean_url = re.sub(r'\$.*$', '', full_url)
                 logo_url = extract_logo_from_m3u(channel_name, m3u_file)
                 
@@ -74,6 +72,7 @@ def parse_txt_file(filename):
                     'full_url': full_url,
                     'clean_url': clean_url,
                     'logo': logo_url,
+                    'group': current_group,  # 明确保存 group
                     'is_announcement': current_group == '公告'
                 })
     
@@ -99,12 +98,10 @@ async def fetch_hotel_source():
                     if not line:
                         continue
                     
-                    # 处理分组行（去掉逗号）
                     if line.endswith('#genre#'):
                         current_subgroup = clean_group_name(line[:-7].strip())
                         continue
                     
-                    # 处理频道行
                     if ',' in line and current_subgroup:
                         parts = line.split(',', 1)
                         channel_name = parts[0].strip()
@@ -112,10 +109,10 @@ async def fetch_hotel_source():
                         
                         hotel_by_subgroup[current_subgroup].append({
                             'name': channel_name,
-                            'url': channel_url
+                            'url': channel_url,
+                            'group': current_subgroup  # 保存分组信息
                         })
                 
-                # 统计并显示
                 total = sum(len(ch) for ch in hotel_by_subgroup.values())
                 print(f"✅ 拉取成功，{len(hotel_by_subgroup)} 个子分组，{total} 个频道")
                 for subgroup, channels in hotel_by_subgroup.items():
@@ -127,10 +124,9 @@ async def fetch_hotel_source():
         return {}
 
 async def fast_check(session, clean_url):
-    """快速 HEAD 检查，判断源是否可访问"""
+    """快速 HEAD 检查"""
     try:
         async with session.head(clean_url, timeout=FAST_CHECK_TIMEOUT, allow_redirects=True) as resp:
-            # 200、301、302、307、308 都视为可访问
             is_valid = resp.status in [200, 301, 302, 307, 308]
             if is_valid:
                 print(f"  ✅ {resp.status}")
@@ -140,36 +136,39 @@ async def fast_check(session, clean_url):
     except Exception as e:
         error_type = type(e).__name__
         print(f"  ⚠️ {error_type}")
-        # ServerDisconnectedError 和超时可能仍是有效的
-        if 'ServerDisconnectedError' in error_type or 'Timeout' in error_type:
-            return True
         return False
 
 async def check_channel(session, channel):
-    """检测单个频道，放宽判断标准"""
-    if channel.get('is_announcement'):
+    """检测单个频道"""
+    # 先提取所有需要的信息，避免在异常处理中丢失
+    channel_name = channel.get('name', '未知')
+    channel_group = channel.get('group', '未分组')
+    channel_logo = channel.get('logo', '')
+    full_url = channel.get('full_url', '')
+    clean_url = channel.get('clean_url', '')
+    is_announcement = channel.get('is_announcement', False)
+    
+    # 公告直接返回有效
+    if is_announcement:
         return {
-            'name': channel['name'],
-            'group': channel['group'],
-            'full_url': channel['full_url'],
-            'logo': channel.get('logo', ''),
+            'name': channel_name,
+            'group': channel_group,
+            'full_url': full_url,
+            'logo': channel_logo,
             'valid': True,
             'height': 1080
         }
     
-    clean_url = channel['clean_url']
+    print(f"检测: {channel_name} - {clean_url[:60]}...")
     
-    # 打印检测中的频道
-    print(f"检测: {channel['name']} - {clean_url[:60]}...")
-    
-    # RTSP 流直接视为有效（难以快速检测）
+    # RTSP 流直接视为有效
     if clean_url.startswith('rtsp://'):
         print(f"  📹 RTSP流（直接接受）")
         return {
-            'name': channel['name'],
-            'group': channel['group'],
-            'full_url': channel['full_url'],
-            'logo': channel.get('logo', ''),
+            'name': channel_name,
+            'group': channel_group,
+            'full_url': full_url,
+            'logo': channel_logo,
             'valid': True,
             'height': 720
         }
@@ -178,26 +177,27 @@ async def check_channel(session, channel):
     try:
         if await fast_check(session, clean_url):
             return {
-                'name': channel['name'],
-                'group': channel['group'],
-                'full_url': channel['full_url'],
-                'logo': channel.get('logo', ''),
+                'name': channel_name,
+                'group': channel_group,
+                'full_url': full_url,
+                'logo': channel_logo,
                 'valid': True,
                 'height': 720
             }
+        else:
+            # 检测失败，返回 None
+            return None
     except Exception as e:
-        # 异常时也接受，避免误判
-        print(f"  ⚠️ 异常但仍接受")
+        # 发生异常时，仍然接受（避免误判）
+        print(f"  ⚠️ 异常但仍接受: {type(e).__name__}")
         return {
-            'name': channel['name'],
-            'group': channel['group'],
-            'full_url': channel['full_url'],
-            'logo': channel.get('logo', ''),
+            'name': channel_name,
+            'group': channel_group,
+            'full_url': full_url,
+            'logo': channel_logo,
             'valid': True,
             'height': 720
         }
-    
-    return None
 
 async def main():
     import time
@@ -270,7 +270,7 @@ async def main():
             f.write(extinf + '\n')
             f.write(announcement['full_url'] + '\n')
         
-        # === 第二部分：本地有效频道（按原分组） ===
+        # === 第二部分：本地有效频道 ===
         if local_by_group:
             f.write('\n# ========== 本地源 ==========\n')
             for group, channels in local_by_group.items():
@@ -285,16 +285,14 @@ async def main():
                         f.write(extinf + '\n')
                         f.write(ch['full_url'] + '\n')
         
-        # === 第三部分：酒店源（保持子分组结构） ===
+        # === 第三部分：酒店源 ===
         if hotel_data:
             f.write(f'\n# ========== {HOTEL_MAIN_GROUP} ==========\n')
             for subgroup, channels in hotel_data.items():
                 if channels:
-                    # 每个子分组作为一个独立分组显示
                     f.write(f'\n# 分组：{subgroup}\n')
                     for ch in channels:
                         tvg_id = str(abs(hash(ch['name'])) % 10000)
-                        # 注意：group-title 使用子分组名，这样播放器会按子分组显示
                         extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{ch["name"]}" group-title="{subgroup}",{ch["name"]}'
                         f.write(extinf + '\n')
                         f.write(ch['url'] + '\n')
