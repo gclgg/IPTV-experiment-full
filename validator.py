@@ -6,30 +6,63 @@ import re
 import os
 
 # --- 配置参数 ---
-CONCURRENT_CHECKS = 5      # 并发数（降低以防被 ban）
+CONCURRENT_CHECKS = 5      # 并发数
 CHECK_TIMEOUT = 30         # 超时时间（秒）
 MIN_BITRATE = 500          # 最小码率要求 (kbps)
 OUTPUT_FILE = "live.m3u"   # 最终生成的有效源文件
 INPUT_SOURCE = "live.txt"  # 原始源列表文件
 # ------------------------------------
 
-def extract_urls_from_file(filename):
-    """从文件中提取所有 URL（支持频道名,URL 格式）"""
-    urls = []
-    url_pattern = re.compile(r'https?://[^\s,"]+')  # 匹配 http 或 https 链接，直到遇到空格、逗号或引号
+def parse_txt_file(filename):
+    """
+    解析直播源 TXT 文件，返回结构化的数据
+    格式支持：
+    - 分组行：分组名,#genre#
+    - 频道行：频道名,URL
+    """
+    channels_by_group = {}
+    current_group = "未分组"  # 默认分组
     
     with open(filename, 'r', encoding='utf-8') as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
-            if not line or line.startswith('#'):
-                continue  # 跳过空行和注释行
-            match = url_pattern.search(line)
-            if match:
-                urls.append(match.group(0))
-            else:
-                print(f"第 {line_num} 行未找到 URL: {line[:50]}...")
+            if not line:
+                continue
+            
+            # 检查是否是分组行（以 #genre# 结尾）
+            if line.endswith('#genre#'):
+                # 提取分组名（去掉最后的 ,#genre#）
+                group_name = line[:-7].strip()
+                current_group = group_name
+                if current_group not in channels_by_group:
+                    channels_by_group[current_group] = []
+                continue
+            
+            # 处理频道行（格式：频道名,URL）
+            if ',' in line:
+                parts = line.split(',', 1)
+                channel_name = parts[0].strip()
+                # 提取 URL（可能包含额外参数如 $LR•IPV4『线路1』）
+                url_part = parts[1].strip()
+                
+                # 使用正则提取第一个 http 或 rtsp 链接
+                url_match = re.search(r'(https?|rtsp)://[^\s,$]+', url_part)
+                if url_match:
+                    url = url_match.group(0)
+                    # 确保当前分组存在
+                    if current_group not in channels_by_group:
+                        channels_by_group[current_group] = []
+                    
+                    channels_by_group[current_group].append({
+                        'name': channel_name,
+                        'url': url,
+                        'line_num': line_num,
+                        'raw': line
+                    })
+                else:
+                    print(f"第 {line_num} 行未找到有效 URL: {line[:50]}...")
     
-    return urls
+    return channels_by_group
 
 async def check_stream(session, url):
     """使用 ffprobe 探测流信息，返回是否可用和分辨率"""
@@ -81,56 +114,126 @@ async def check_stream(session, url):
         return {"url": url, "valid": False, "reason": str(e)}
 
 async def main():
-    # 1. 提取 URL
+    # 1. 检查输入文件
     if not os.path.exists(INPUT_SOURCE):
         print(f"错误：文件 {INPUT_SOURCE} 不存在！")
         return
     
-    urls = extract_urls_from_file(INPUT_SOURCE)
-    print(f"从 {INPUT_SOURCE} 中共提取到 {len(urls)} 个 URL")
+    # 2. 解析 TXT 文件，获取分组后的频道列表
+    channels_by_group = parse_txt_file(INPUT_SOURCE)
     
-    if not urls:
-        print("没有找到任何 URL，请检查文件格式。")
+    total_channels = sum(len(channels) for channels in channels_by_group.values())
+    print(f"解析完成，共 {len(channels_by_group)} 个分组，{total_channels} 个频道")
+    
+    # 打印分组统计
+    for group, channels in channels_by_group.items():
+        print(f"  - {group}: {len(channels)} 个频道")
+    
+    if total_channels == 0:
+        print("没有找到任何频道，请检查文件格式。")
         return
 
-    # 2. 并发检测
-    print(f"开始检测 {len(urls)} 个源（并发 {CONCURRENT_CHECKS}）...")
+    # 3. 收集所有需要检测的 URL
+    all_channels = []
+    for group, channels in channels_by_group.items():
+        for channel in channels:
+            all_channels.append({
+                'group': group,
+                'name': channel['name'],
+                'url': channel['url']
+            })
+    
+    # 4. 并发检测所有 URL
+    print(f"\n开始检测 {len(all_channels)} 个源（并发 {CONCURRENT_CHECKS}）...")
     async with aiohttp.ClientSession() as session:
         semaphore = asyncio.Semaphore(CONCURRENT_CHECKS)
         
-        async def bounded_check(url):
+        async def bounded_check(channel):
             async with semaphore:
-                return await check_stream(session, url)
+                result = await check_stream(session, channel['url'])
+                # 将频道信息合并到结果中
+                result['group'] = channel['group']
+                result['name'] = channel['name']
+                return result
         
-        tasks = [bounded_check(url) for url in urls]
+        tasks = [bounded_check(ch) for ch in all_channels]
         results = await asyncio.gather(*tasks)
     
-    valid_streams = [r for r in results if r['valid']]
-    invalid_streams = [r for r in results if not r['valid']]
+    # 5. 按分组整理结果
+    valid_by_group = {}
+    invalid_by_group = {}
     
-    print(f"检测完成。有效源: {len(valid_streams)}，无效源: {len(invalid_streams)}")
+    for result in results:
+        group = result['group']
+        if result['valid']:
+            if group not in valid_by_group:
+                valid_by_group[group] = []
+            valid_by_group[group].append(result)
+        else:
+            if group not in invalid_by_group:
+                invalid_by_group[group] = []
+            invalid_by_group[group].append(result)
     
-    # 3. 输出部分失败原因以便调试
-    if invalid_streams:
-        print("前10个失败原因示例：")
-        for i, inv in enumerate(invalid_streams[:10]):
+    # 统计
+    total_valid = sum(len(v) for v in valid_by_group.values())
+    total_invalid = sum(len(v) for v in invalid_by_group.values())
+    
+    print(f"\n检测完成。有效源: {total_valid}，无效源: {total_invalid}")
+    
+    # 按分组打印统计
+    print("\n各分组有效源统计：")
+    for group in channels_by_group.keys():
+        valid_count = len(valid_by_group.get(group, []))
+        invalid_count = len(invalid_by_group.get(group, []))
+        total = valid_count + invalid_count
+        if total > 0:
+            print(f"  {group}: {valid_count}/{total} 有效 ({valid_count/total*100:.1f}%)")
+    
+    # 6. 输出部分失败原因
+    if total_invalid > 0:
+        print("\n前10个失败原因示例：")
+        fail_samples = []
+        for group, invalids in invalid_by_group.items():
+            for inv in invalids[:3]:  # 每个分组最多取3个
+                fail_samples.append(inv)
+                if len(fail_samples) >= 10:
+                    break
+            if len(fail_samples) >= 10:
+                break
+        
+        for inv in fail_samples[:10]:
             short_url = inv['url'][:60] + ('...' if len(inv['url']) > 60 else '')
-            print(f"  {short_url} : {inv.get('reason', 'unknown')}")
+            print(f"  [{inv['group']}] {inv['name']}: {short_url} -> {inv.get('reason', 'unknown')}")
     
-    # 4. 按分辨率排序并写入文件
-    valid_streams.sort(key=lambda x: x.get('height', 0), reverse=True)
-    
+    # 7. 生成带分组的 M3U 文件
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         f.write("#EXTM3U\n")
-        for stream in valid_streams:
-            f.write(f"# 分辨率: {stream['resolution']}\n")
-            f.write(f"{stream['url']}\n")
+        
+        # 按分组写入，保持分组顺序（按原文件中的顺序）
+        for group in channels_by_group.keys():
+            valid_channels = valid_by_group.get(group, [])
+            if valid_channels:
+                # 在每个分组前添加注释作为分组标记
+                # 有些播放器支持 #EXTGRP 标签，但更通用的方式是在 EXTINF 中使用 group-title
+                f.write(f"\n# 分组：{group}\n")
+                
+                # 对分组内的频道按分辨率排序
+                valid_channels.sort(key=lambda x: x.get('height', 0), reverse=True)
+                
+                for channel in valid_channels:
+                    # 写入频道信息行（使用 group-title 属性）
+                    f.write(f'#EXTINF:-1 group-title="{group}" tvg-name="{channel["name"]}",{channel["name"]}\n')
+                    # 写入 URL
+                    f.write(f"{channel['url']}\n")
     
-    print(f"已生成 {OUTPUT_FILE}，包含 {len(valid_streams)} 个有效源")
+    print(f"\n已生成 {OUTPUT_FILE}，包含 {total_valid} 个有效源，分布在 {len(valid_by_group)} 个分组中")
     
+    # 8. 生成无效源日志
     with open("invalid_sources.log", 'w', encoding='utf-8') as f:
-        for stream in invalid_streams:
-            f.write(f"{stream['url']}\t{stream.get('reason', 'unknown')}\n")
+        for group, invalids in invalid_by_group.items():
+            f.write(f"\n# 分组：{group}\n")
+            for inv in invalids:
+                f.write(f"{inv['name']}\t{inv['url']}\t{inv.get('reason', 'unknown')}\n")
 
 if __name__ == "__main__":
     asyncio.run(main())
