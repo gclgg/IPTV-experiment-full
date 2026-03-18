@@ -133,10 +133,14 @@ async def ffprobe_check(clean_url):
             if bitrate and int(bitrate) / 1000 < MIN_BITRATE:
                 return None
             
+            # 计算质量分数：分辨率越高越好，码率越高越好
+            quality_score = (height * 10000) + (bitrate / 1000)  # 分辨率优先
+            
             return {
                 'resolution': f"{width}x{height}",
                 'height': height,
-                'bitrate': int(bitrate) if bitrate else 0
+                'bitrate': int(bitrate) if bitrate else 0,
+                'quality_score': quality_score
             }
         else:
             return None
@@ -157,6 +161,7 @@ async def check_channel(session, channel):
             'height': 1080,
             'resolution': '1920x1080',
             'bitrate': 5000,
+            'quality_score': 10800000,  # 高分
             'is_announcement': True
         }
     
@@ -181,6 +186,7 @@ async def check_channel(session, channel):
         'height': probe_result['height'],
         'resolution': probe_result['resolution'],
         'bitrate': probe_result['bitrate'],
+        'quality_score': probe_result['quality_score'],
         'is_announcement': False
     }
 
@@ -190,7 +196,6 @@ async def main():
     
     # 获取当前时间
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    current_date = current_time.split()[0]
     print(f"🕐 当前时间: {current_time}")
     
     # 1. 解析文件
@@ -221,7 +226,6 @@ async def main():
                 if '更新日期' in channel['name']:
                     announcement_logo = channel['logo']
                     announcement_video_url = channel['full_url']
-                # 不添加到announcement_channels，我们只保留一条
             else:
                 normal_channels_by_name[channel['name']].append({
                     'group': group,
@@ -231,6 +235,9 @@ async def main():
                     'logo': channel['logo'],
                     'is_announcement': False
                 })
+
+    print(f"📢 公告信息已保留")
+    print(f"📺 待检测频道: {sum(len(v) for v in normal_channels_by_name.values())} 个源，{len(normal_channels_by_name)} 个频道")
 
     # 3. 并发检测普通频道
     all_tasks = []
@@ -249,13 +256,13 @@ async def main():
         
         results = await asyncio.gather(*all_tasks)
 
-    # 4. 按频道名分组有效结果
+    # 4. 按频道名分组有效结果（只保留有效的）
     valid_by_channel = defaultdict(list)
     for result in results:
         if result and result['valid']:
             valid_by_channel[result['name']].append(result)
 
-    # 5. 为每个频道的多个源排序并重新编号
+    # 5. 为每个频道的多个源按质量排序并重新编号
     epg_urls = [
         "http://epg.112114.xyz/pp.xml",
         "https://epg.112114.free.hr/pp.xml",
@@ -298,11 +305,12 @@ async def main():
         # 2. 按原分组顺序写入普通频道
         output_by_group = defaultdict(list)
         
+        # 对每个频道的多个源按质量分数排序
         for channel_name, sources in valid_by_channel.items():
-            # 按分辨率从高到低排序
-            sources.sort(key=lambda x: (-x['height'], -x['bitrate']))
+            # 按质量分数从高到低排序（分辨率优先，码率次之）
+            sources.sort(key=lambda x: -x['quality_score'])
             
-            # 重新编号线路
+            # 重新编号线路（从1开始，按质量排序）
             for idx, source in enumerate(sources, 1):
                 group = source['group']
                 full_url = source['full_url']
@@ -315,15 +323,17 @@ async def main():
                 output_by_group[group].append({
                     'name': channel_name,
                     'url': numbered_url,
+                    'quality_score': source['quality_score'],
                     'height': source['height'],
-                    'logo': logo
+                    'logo': logo,
+                    'line_num': idx  # 记录线路编号
                 })
         
-        # 按原分组顺序写入
+        # 按原分组顺序写入，组内按质量排序
         for group in channels_by_group.keys():
             if group != '公告' and group in output_by_group and output_by_group[group]:
-                # 按分辨率排序组内的频道
-                output_by_group[group].sort(key=lambda x: -x['height'])
+                # 组内按质量分数排序（高的在前）
+                output_by_group[group].sort(key=lambda x: -x['quality_score'])
                 
                 f.write(f"\n# 分组：{group}\n")
                 
@@ -351,7 +361,20 @@ async def main():
     for group in channels_by_group.keys():
         if group != '公告' and group in output_by_group:
             count = len(output_by_group[group])
-            print(f"  {group}: {count}")
+            # 计算该组平均质量
+            avg_height = sum(c['height'] for c in output_by_group[group]) / count if count > 0 else 0
+            print(f"  {group}: {count} 个源 (平均{int(avg_height)}p)")
+    
+    # 打印质量最好的几个频道示例
+    print("\n🏆 质量最好的频道示例：")
+    best_channels = []
+    for group in output_by_group:
+        for channel in output_by_group[group][:1]:  # 每组取第一个
+            best_channels.append(channel)
+    
+    best_channels.sort(key=lambda x: -x['quality_score'])
+    for channel in best_channels[:5]:
+        print(f"  {channel['name']}: {channel['height']}p (线路{channel['line_num']})")
     
     print(f"\n🕐 更新时间: {current_time}")
 
