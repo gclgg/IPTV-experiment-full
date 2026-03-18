@@ -38,7 +38,6 @@ def extract_logo_from_m3u(channel_name, m3u_file):
 def parse_txt_file(filename):
     """
     解析直播源 TXT 文件，返回结构化的数据
-    特殊处理公告分组，保留所有信息
     """
     channels_by_group = defaultdict(list)
     current_group = "未分组"
@@ -73,17 +72,17 @@ def parse_txt_file(filename):
                 if line_match:
                     line_info = line_match.group(1)
                 
-                # 从 M3U 文件中提取 logo（对公告分组也提取）
+                # 从 M3U 文件中提取 logo
                 logo_url = extract_logo_from_m3u(channel_name, m3u_file)
                 
                 channels_by_group[current_group].append({
                     'name': channel_name,
-                    'full_url': full_url,      # 保留完整URL用于输出（公告需要完整URL）
-                    'clean_url': clean_url,    # 纯净URL用于检测
+                    'full_url': full_url,
+                    'clean_url': clean_url,
                     'line_info': line_info,
                     'logo': logo_url,
                     'original_line_num': line_num,
-                    'is_announcement': current_group == '公告'  # 标记是否为公告分组
+                    'is_announcement': current_group == '公告'
                 })
     
     return dict(channels_by_group)
@@ -152,10 +151,10 @@ async def check_channel(session, channel):
         return {
             'name': channel['name'],
             'group': channel['group'],
-            'full_url': channel['full_url'],  # 使用完整URL
+            'full_url': channel['full_url'],
             'logo': channel['logo'],
             'valid': True,
-            'height': 1080,  # 给公告一个默认高度
+            'height': 1080,
             'resolution': '1920x1080',
             'bitrate': 5000,
             'is_announcement': True
@@ -176,7 +175,7 @@ async def check_channel(session, channel):
     return {
         'name': channel['name'],
         'group': channel['group'],
-        'full_url': channel['full_url'],  # 使用完整URL
+        'full_url': channel['full_url'],
         'logo': channel['logo'],
         'valid': True,
         'height': probe_result['height'],
@@ -189,8 +188,9 @@ async def main():
     import time
     start_time = time.time()
     
-    # 获取当前时间用于更新时间
+    # 获取当前时间
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    current_date = current_time.split()[0]
     print(f"🕐 当前时间: {current_time}")
     
     # 1. 解析文件
@@ -210,10 +210,18 @@ async def main():
     announcement_channels = []
     normal_channels_by_name = defaultdict(list)
     
+    # 用于存储公告的logo和视频URL
+    announcement_logo = ""
+    announcement_video_url = ""
+    
     for group, channels in channels_by_group.items():
         for channel in channels:
             if group == '公告':
-                announcement_channels.append(channel)
+                # 收集公告信息
+                if '更新日期' in channel['name']:
+                    announcement_logo = channel['logo']
+                    announcement_video_url = channel['full_url']
+                # 不添加到announcement_channels，我们只保留一条
             else:
                 normal_channels_by_name[channel['name']].append({
                     'group': group,
@@ -223,9 +231,6 @@ async def main():
                     'logo': channel['logo'],
                     'is_announcement': False
                 })
-
-    print(f"📢 公告分组: {len(announcement_channels)} 个")
-    print(f"📺 普通频道: {sum(len(v) for v in normal_channels_by_name.values())} 个源，{len(normal_channels_by_name)} 个频道")
 
     # 3. 并发检测普通频道
     all_tasks = []
@@ -271,28 +276,24 @@ async def main():
         epg_line = '#EXTM3U x-tvg-url="' + '","'.join(epg_urls) + '"'
         f.write(epg_line + '\n')
         
-        # 1. 先写入公告分组（保持不变，但更新时间）
-        if announcement_channels:
+        # 1. 写入公告分组（只保留更新日期一条）
+        if announcement_video_url:
             f.write("\n# 分组：公告\n")
-            for channel in announcement_channels:
-                # 更新公告中的时间信息
-                channel_name = channel['name']
-                if '更新时间' in channel_name:
-                    channel_name = f"📦 仓库更新时间 {current_time}"
-                elif '更新日期' in channel_name:
-                    channel_name = f"更新日期 {current_time.split()[0]}"
-                
-                # 生成 tvg-id
-                tvg_id = str(abs(hash(channel_name)) % 10000)
-                
-                # 构建 EXTINF 行
-                extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{channel_name}"'
-                if channel['logo']:
-                    extinf += f' tvg-logo="{channel["logo"]}"'
-                extinf += f' group-title="公告",{channel_name}'
-                
-                f.write(extinf + '\n')
-                f.write(channel['full_url'] + '\n')  # 使用原始完整URL
+            
+            # 更新日期带时间
+            announcement_name = f"更新日期 {current_time}"
+            
+            # 生成 tvg-id
+            tvg_id = str(abs(hash(announcement_name)) % 10000)
+            
+            # 构建 EXTINF 行
+            extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{announcement_name}"'
+            if announcement_logo:
+                extinf += f' tvg-logo="{announcement_logo}"'
+            extinf += f' group-title="公告",{announcement_name}'
+            
+            f.write(extinf + '\n')
+            f.write(announcement_video_url + '\n')
         
         # 2. 按原分组顺序写入普通频道
         output_by_group = defaultdict(list)
@@ -304,7 +305,7 @@ async def main():
             # 重新编号线路
             for idx, source in enumerate(sources, 1):
                 group = source['group']
-                full_url = source['full_url']  # 使用完整URL
+                full_url = source['full_url']
                 logo = source['logo']
                 
                 # 提取纯净URL并添加新的线路编号
@@ -343,18 +344,15 @@ async def main():
     
     print(f"\n✅ 检测完成！耗时: {elapsed:.1f} 秒")
     print(f"有效源: {total_valid}，频道数: {len(valid_by_channel)}")
-    print(f"公告信息: {len(announcement_channels)} 条")
     
     # 打印分组统计
     print("\n📁 分组统计：")
-    if announcement_channels:
-        print(f"  公告: {len(announcement_channels)}")
+    print(f"  公告: 1 (更新日期 {current_time})")
     for group in channels_by_group.keys():
         if group != '公告' and group in output_by_group:
             count = len(output_by_group[group])
             print(f"  {group}: {count}")
     
-    # 打印更新时间
     print(f"\n🕐 更新时间: {current_time}")
 
 if __name__ == "__main__":
