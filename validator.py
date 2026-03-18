@@ -248,6 +248,13 @@ async def check_channel(session, channel):
             await asyncio.sleep(0.5)
 
 async def main():
+    # 在 validator.py 的 main() 函数最开头添加
+import subprocess
+try:
+    result = subprocess.run(['ffprobe', '-version'], capture_output=True, text=True, timeout=10)
+    print("ffprobe 可用:", result.returncode == 0)
+except Exception as e:
+    print("ffprobe 调用失败:", e)
     import time
     start_time = time.time()
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
