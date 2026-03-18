@@ -2,8 +2,7 @@ name: Scheduled Auto Update
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # 每6小时触发一次
-  workflow_dispatch:        # 允许手动触发
+    - cron: '0 22 * * *'  # 北京时间每天早上6点运行（UTC 22:00）
 
 jobs:
   auto-update:
