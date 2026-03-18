@@ -19,6 +19,9 @@ INPUT_SOURCE = "live.txt"
 HOTEL_SOURCE_URL = "https://raw.githubusercontent.com/gclgg/zubo/main/itvlist.txt"
 HOTEL_MAIN_GROUP = "酒店源"
 
+# 保留所有三个分组
+KEEP_HOTEL_GROUPS = ['央视频道', '卫视频道', '数字频道']
+
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.36',
@@ -72,14 +75,14 @@ def parse_txt_file(filename):
                     'full_url': full_url,
                     'clean_url': clean_url,
                     'logo': logo_url,
-                    'group': current_group,  # 明确保存 group
+                    'group': current_group,
                     'is_announcement': current_group == '公告'
                 })
     
     return dict(channels_by_group)
 
 async def fetch_hotel_source():
-    """拉取酒店源，保持原始分组结构"""
+    """拉取酒店源，保留央视频道、卫视频道、数字频道"""
     print(f"\n🏨 正在拉取酒店源: {HOTEL_SOURCE_URL}")
     try:
         async with aiohttp.ClientSession() as session:
@@ -103,20 +106,26 @@ async def fetch_hotel_source():
                         continue
                     
                     if ',' in line and current_subgroup:
-                        parts = line.split(',', 1)
-                        channel_name = parts[0].strip()
-                        channel_url = parts[1].strip()
-                        
-                        hotel_by_subgroup[current_subgroup].append({
-                            'name': channel_name,
-                            'url': channel_url,
-                            'group': current_subgroup  # 保存分组信息
-                        })
+                        # 只保留指定的三个分组
+                        if current_subgroup in KEEP_HOTEL_GROUPS:
+                            parts = line.split(',', 1)
+                            channel_name = parts[0].strip()
+                            channel_url = parts[1].strip()
+                            
+                            hotel_by_subgroup[current_subgroup].append({
+                                'name': channel_name,
+                                'url': channel_url,
+                                'group': current_subgroup
+                            })
                 
+                # 统计并显示
                 total = sum(len(ch) for ch in hotel_by_subgroup.values())
-                print(f"✅ 拉取成功，{len(hotel_by_subgroup)} 个子分组，{total} 个频道")
-                for subgroup, channels in hotel_by_subgroup.items():
-                    print(f"   - {subgroup}: {len(channels)} 个频道")
+                print(f"✅ 拉取成功，保留 {len(hotel_by_subgroup)} 个子分组，{total} 个频道")
+                
+                # 按指定顺序显示
+                for subgroup in KEEP_HOTEL_GROUPS:
+                    if subgroup in hotel_by_subgroup:
+                        print(f"   - {subgroup}: {len(hotel_by_subgroup[subgroup])} 个频道")
                 
                 return dict(hotel_by_subgroup)
     except Exception as e:
@@ -140,7 +149,6 @@ async def fast_check(session, clean_url):
 
 async def check_channel(session, channel):
     """检测单个频道"""
-    # 先提取所有需要的信息，避免在异常处理中丢失
     channel_name = channel.get('name', '未知')
     channel_group = channel.get('group', '未分组')
     channel_logo = channel.get('logo', '')
@@ -148,7 +156,6 @@ async def check_channel(session, channel):
     clean_url = channel.get('clean_url', '')
     is_announcement = channel.get('is_announcement', False)
     
-    # 公告直接返回有效
     if is_announcement:
         return {
             'name': channel_name,
@@ -161,7 +168,6 @@ async def check_channel(session, channel):
     
     print(f"检测: {channel_name} - {clean_url[:60]}...")
     
-    # RTSP 流直接视为有效
     if clean_url.startswith('rtsp://'):
         print(f"  📹 RTSP流（直接接受）")
         return {
@@ -173,7 +179,6 @@ async def check_channel(session, channel):
             'height': 720
         }
     
-    # HTTP/HTTPS 流进行检测
     try:
         if await fast_check(session, clean_url):
             return {
@@ -185,10 +190,8 @@ async def check_channel(session, channel):
                 'height': 720
             }
         else:
-            # 检测失败，返回 None
             return None
     except Exception as e:
-        # 发生异常时，仍然接受（避免误判）
         print(f"  ⚠️ 异常但仍接受: {type(e).__name__}")
         return {
             'name': channel_name,
@@ -206,7 +209,7 @@ async def main():
     
     print(f"\n🕐 当前时间: {current_time}")
     
-    # 1. 拉取酒店源
+    # 1. 拉取酒店源（保留央视频道、卫视频道、数字频道）
     hotel_data = await fetch_hotel_source()
     
     # 2. 解析本地源
@@ -285,13 +288,15 @@ async def main():
                         f.write(extinf + '\n')
                         f.write(ch['full_url'] + '\n')
         
-        # === 第三部分：酒店源 ===
+        # === 第三部分：酒店源（三个子分组） ===
         if hotel_data:
             f.write(f'\n# ========== {HOTEL_MAIN_GROUP} ==========\n')
-            for subgroup, channels in hotel_data.items():
-                if channels:
+            
+            # 按顺序写入三个分组：央视频道、卫视频道、数字频道
+            for subgroup in KEEP_HOTEL_GROUPS:
+                if subgroup in hotel_data and hotel_data[subgroup]:
                     f.write(f'\n# 分组：{subgroup}\n')
-                    for ch in channels:
+                    for ch in hotel_data[subgroup]:
                         tvg_id = str(abs(hash(ch['name'])) % 10000)
                         extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{ch["name"]}" group-title="{subgroup}",{ch["name"]}'
                         f.write(extinf + '\n')
@@ -308,8 +313,9 @@ async def main():
     print(f"  - 本地有效源: {len(valid_channels)} 个")
     if hotel_data:
         print(f"  - 酒店源: {total_hotel} 个频道，{len(hotel_data)} 个子分组")
-        for subgroup, channels in hotel_data.items():
-            print(f"      {subgroup}: {len(channels)} 个")
+        for subgroup in KEEP_HOTEL_GROUPS:
+            if subgroup in hotel_data:
+                print(f"      {subgroup}: {len(hotel_data[subgroup])} 个")
     print(f"  - 总计: {len(valid_channels) + total_hotel} 个源")
 
 if __name__ == "__main__":
