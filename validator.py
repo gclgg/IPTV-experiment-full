@@ -5,6 +5,7 @@ import aiohttp
 import re
 import os
 from collections import defaultdict
+from datetime import datetime
 
 # --- 配置参数 ---
 CONCURRENT_CHECKS = 20          # 并发数
@@ -17,16 +18,33 @@ INPUT_SOURCE = "live.txt"       # 原始源列表文件
 
 def clean_group_name(group_name):
     """清理分组名称，去掉逗号等特殊字符"""
-    # 替换逗号为空格，去掉其他可能引起问题的字符
     return re.sub(r'[,\n\r]', ' ', group_name).strip()
+
+def extract_logo_from_m3u(channel_name, m3u_file):
+    """从原始 M3U 文件中提取指定频道的 logo URL"""
+    if not os.path.exists(m3u_file):
+        return ""
+    
+    with open(m3u_file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    for i, line in enumerate(lines):
+        if line.startswith('#EXTINF') and f',{channel_name}' in line:
+            logo_match = re.search(r'tvg-logo="([^"]+)"', line)
+            if logo_match:
+                return logo_match.group(1)
+    return ""
 
 def parse_txt_file(filename):
     """
     解析直播源 TXT 文件，返回结构化的数据
-    格式：频道名,完整URL（可能包含$参数）
+    特殊处理公告分组，保留所有信息
     """
     channels_by_group = defaultdict(list)
     current_group = "未分组"
+    
+    # 获取同名的 M3U 文件（用于提取 logo）
+    m3u_file = filename.replace('.txt', '.m3u')
     
     with open(filename, 'r', encoding='utf-8') as f:
         for line_num, line in enumerate(f, 1):
@@ -36,7 +54,6 @@ def parse_txt_file(filename):
             
             # 检查是否是分组行（以 #genre# 结尾）
             if line.endswith('#genre#'):
-                # 提取分组名并清理
                 raw_group = line[:-7].strip()
                 current_group = clean_group_name(raw_group)
                 continue
@@ -47,7 +64,7 @@ def parse_txt_file(filename):
                 channel_name = parts[0].strip()
                 full_url = parts[1].strip()
                 
-                # 提取纯净的URL（去掉$后面的所有参数）
+                # 提取纯净的URL（去掉$后面的所有参数）- 只用于检测
                 clean_url = re.sub(r'\$.*$', '', full_url)
                 
                 # 提取线路信息（如果有）
@@ -56,12 +73,17 @@ def parse_txt_file(filename):
                 if line_match:
                     line_info = line_match.group(1)
                 
+                # 从 M3U 文件中提取 logo（对公告分组也提取）
+                logo_url = extract_logo_from_m3u(channel_name, m3u_file)
+                
                 channels_by_group[current_group].append({
                     'name': channel_name,
-                    'full_url': full_url,      # 原始完整URL（暂时保留）
-                    'clean_url': clean_url,    # 纯净URL（用于检测）
-                    'line_info': line_info,    # 原始线路信息
-                    'original_line_num': line_num
+                    'full_url': full_url,      # 保留完整URL用于输出（公告需要完整URL）
+                    'clean_url': clean_url,    # 纯净URL用于检测
+                    'line_info': line_info,
+                    'logo': logo_url,
+                    'original_line_num': line_num,
+                    'is_announcement': current_group == '公告'  # 标记是否为公告分组
                 })
     
     return dict(channels_by_group)
@@ -125,6 +147,20 @@ async def ffprobe_check(clean_url):
 
 async def check_channel(session, channel):
     """检测单个频道，返回结果和分辨率信息"""
+    # 如果是公告分组，直接返回有效（不检测）
+    if channel.get('is_announcement', False):
+        return {
+            'name': channel['name'],
+            'group': channel['group'],
+            'full_url': channel['full_url'],  # 使用完整URL
+            'logo': channel['logo'],
+            'valid': True,
+            'height': 1080,  # 给公告一个默认高度
+            'resolution': '1920x1080',
+            'bitrate': 5000,
+            'is_announcement': True
+        }
+    
     clean_url = channel['clean_url']
     
     # 快速 HEAD 检查
@@ -140,15 +176,22 @@ async def check_channel(session, channel):
     return {
         'name': channel['name'],
         'group': channel['group'],
-        'clean_url': clean_url,
+        'full_url': channel['full_url'],  # 使用完整URL
+        'logo': channel['logo'],
+        'valid': True,
         'height': probe_result['height'],
         'resolution': probe_result['resolution'],
-        'bitrate': probe_result['bitrate']
+        'bitrate': probe_result['bitrate'],
+        'is_announcement': False
     }
 
 async def main():
     import time
     start_time = time.time()
+    
+    # 获取当前时间用于更新时间
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"🕐 当前时间: {current_time}")
     
     # 1. 解析文件
     if not os.path.exists(INPUT_SOURCE):
@@ -163,20 +206,28 @@ async def main():
         print("没有找到任何频道，请检查文件格式。")
         return
 
-    # 2. 收集所有需要检测的频道（按频道名分组）
-    channels_by_name = defaultdict(list)
+    # 2. 分离公告分组和其他分组
+    announcement_channels = []
+    normal_channels_by_name = defaultdict(list)
+    
     for group, channels in channels_by_group.items():
         for channel in channels:
-            channels_by_name[channel['name']].append({
-                'group': group,
-                'name': channel['name'],
-                'clean_url': channel['clean_url'],
-                'original_line': channel
-            })
+            if group == '公告':
+                announcement_channels.append(channel)
+            else:
+                normal_channels_by_name[channel['name']].append({
+                    'group': group,
+                    'name': channel['name'],
+                    'clean_url': channel['clean_url'],
+                    'full_url': channel['full_url'],
+                    'logo': channel['logo'],
+                    'is_announcement': False
+                })
 
-    print(f"共 {len(channels_by_name)} 个不同频道名称")
+    print(f"📢 公告分组: {len(announcement_channels)} 个")
+    print(f"📺 普通频道: {sum(len(v) for v in normal_channels_by_name.values())} 个源，{len(normal_channels_by_name)} 个频道")
 
-    # 3. 并发检测所有 URL
+    # 3. 并发检测普通频道
     all_tasks = []
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(ssl=False),
@@ -184,7 +235,7 @@ async def main():
     ) as session:
         semaphore = asyncio.Semaphore(CONCURRENT_CHECKS)
         
-        for channel_name, sources in channels_by_name.items():
+        for channel_name, sources in normal_channels_by_name.items():
             for source in sources:
                 async def check_with_semaphore(s=source):
                     async with semaphore:
@@ -196,7 +247,7 @@ async def main():
     # 4. 按频道名分组有效结果
     valid_by_channel = defaultdict(list)
     for result in results:
-        if result:
+        if result and result['valid']:
             valid_by_channel[result['name']].append(result)
 
     # 5. 为每个频道的多个源排序并重新编号
@@ -220,7 +271,30 @@ async def main():
         epg_line = '#EXTM3U x-tvg-url="' + '","'.join(epg_urls) + '"'
         f.write(epg_line + '\n')
         
-        # 按分组组织输出
+        # 1. 先写入公告分组（保持不变，但更新时间）
+        if announcement_channels:
+            f.write("\n# 分组：公告\n")
+            for channel in announcement_channels:
+                # 更新公告中的时间信息
+                channel_name = channel['name']
+                if '更新时间' in channel_name:
+                    channel_name = f"📦 仓库更新时间 {current_time}"
+                elif '更新日期' in channel_name:
+                    channel_name = f"更新日期 {current_time.split()[0]}"
+                
+                # 生成 tvg-id
+                tvg_id = str(abs(hash(channel_name)) % 10000)
+                
+                # 构建 EXTINF 行
+                extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{channel_name}"'
+                if channel['logo']:
+                    extinf += f' tvg-logo="{channel["logo"]}"'
+                extinf += f' group-title="公告",{channel_name}'
+                
+                f.write(extinf + '\n')
+                f.write(channel['full_url'] + '\n')  # 使用原始完整URL
+        
+        # 2. 按原分组顺序写入普通频道
         output_by_group = defaultdict(list)
         
         for channel_name, sources in valid_by_channel.items():
@@ -230,29 +304,36 @@ async def main():
             # 重新编号线路
             for idx, source in enumerate(sources, 1):
                 group = source['group']
-                clean_url = source['clean_url']
+                full_url = source['full_url']  # 使用完整URL
+                logo = source['logo']
                 
-                # 添加线路编号
-                numbered_url = f"{clean_url}『线路{idx}』"
+                # 提取纯净URL并添加新的线路编号
+                clean_base = re.sub(r'\$.*$', '', full_url)
+                numbered_url = f"{clean_base}『线路{idx}』"
                 
                 output_by_group[group].append({
                     'name': channel_name,
                     'url': numbered_url,
-                    'height': source['height']
+                    'height': source['height'],
+                    'logo': logo
                 })
         
         # 按原分组顺序写入
         for group in channels_by_group.keys():
-            if group in output_by_group and output_by_group[group]:
-                # 写入分组注释（使用清理后的分组名）
+            if group != '公告' and group in output_by_group and output_by_group[group]:
+                # 按分辨率排序组内的频道
+                output_by_group[group].sort(key=lambda x: -x['height'])
+                
                 f.write(f"\n# 分组：{group}\n")
                 
                 for channel in output_by_group[group]:
-                    # 生成 tvg-id
                     tvg_id = str(abs(hash(channel['name'])) % 10000)
                     
-                    # 构建 EXTINF 行
-                    extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{channel["name"]}" group-title="{group}",{channel["name"]}'
+                    extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{channel["name"]}"'
+                    if channel['logo']:
+                        extinf += f' tvg-logo="{channel["logo"]}"'
+                    extinf += f' group-title="{group}",{channel["name"]}'
+                    
                     f.write(extinf + '\n')
                     f.write(channel['url'] + '\n')
 
@@ -262,13 +343,19 @@ async def main():
     
     print(f"\n✅ 检测完成！耗时: {elapsed:.1f} 秒")
     print(f"有效源: {total_valid}，频道数: {len(valid_by_channel)}")
+    print(f"公告信息: {len(announcement_channels)} 条")
     
     # 打印分组统计
     print("\n📁 分组统计：")
+    if announcement_channels:
+        print(f"  公告: {len(announcement_channels)}")
     for group in channels_by_group.keys():
-        if group in output_by_group:
+        if group != '公告' and group in output_by_group:
             count = len(output_by_group[group])
             print(f"  {group}: {count}")
+    
+    # 打印更新时间
+    print(f"\n🕐 更新时间: {current_time}")
 
 if __name__ == "__main__":
     asyncio.run(main())
