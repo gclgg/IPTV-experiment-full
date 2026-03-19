@@ -1,6 +1,6 @@
 import subprocess
 import json
-import asi
+import asyncio  # 原来是 asi，改为 asyncio
 import aiohttp
 import re
 import os
