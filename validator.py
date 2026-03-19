@@ -17,7 +17,7 @@ INPUT_SOURCE = "live.txt"
 
 # 酒店源配置
 HOTEL_SOURCE_URL = "https://raw.githubusercontent.com/gclgg/zubo/main/itvlist.txt"
-HOTEL_MAIN_GROUP = "酒店源"
+HOTEL_MAIN_GROUP = "酒 店 源"
 
 # 你的Logo仓库配置
 LOGO_REPO_OWNER = "gclgg"
@@ -383,9 +383,9 @@ async def main():
         if group not in local_group_order:
             local_group_order.append(group)
         for channel in channels:
-            if group == '公告':
+            if group == '公   告':
                 announcement = channel
-            elif group != '公告':
+            elif group != '公   告':
                 local_channels_to_check.append(channel)
     
     print(f"\n📢 公告: 1 条")
@@ -421,13 +421,13 @@ async def main():
         
         # === 第一部分：公告 ===
         if announcement:
-            f.write('\n# 分组：公告\n')
+            f.write('\n# 分组：公   告\n')
             announcement_name = announcement['name']  # 已经在parse时更新了时间戳
             tvg_id = str(abs(hash(announcement_name)) % 10000)
             extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{announcement_name}"'
             if announcement.get('logo'):
                 extinf += f' tvg-logo="{announcement["logo"]}"'
-            extinf += f' group-title="公告",{announcement_name}'
+            extinf += f' group-title="公   告",{announcement_name}'
             f.write(extinf + '\n')
             f.write(announcement['full_url'] + '\n')
         
