@@ -112,7 +112,7 @@ jobs:
           
           # 检查是否有文件变更
           if [ -n "$(git status --porcelain)" ]; then
-            git add .
+            git add live.m3u live.txt
             
             # 生成带统计信息的提交信息
             VALID_COUNT=$(grep -c '^#EXTINF' live.m3u 2>/dev/null || echo 0)
