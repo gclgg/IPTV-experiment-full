@@ -1,6 +1,6 @@
 import subprocess
 import json
-import asyncio  # 原来是 asi，改为 asyncio
+import asyncio
 import aiohttp
 import re
 import os
@@ -191,12 +191,10 @@ def parse_txt_file(filename, current_time):
                 clean_url = re.sub(r'\$.*$', '', full_url)
                 logo_url = get_logo(channel_name)
                 
-                # 修复：确保公告分组的所有频道都正确显示时间戳
+                # 处理公告分组：只保留一个"更新时间"子分组
                 if current_group == '公告':
-                    if '更新日期' in channel_name:
-                        channel_name = f"更新日期 {current_time}"
-                    elif '仓库更新时间' in channel_name:
-                        channel_name = f"📦 仓库更新时间 {current_time}"
+                    # 将所有公告频道的名称统一为"更新时间" + 时间戳
+                    channel_name = f"更新时间 {current_time}"
                 
                 channels_by_group[current_group].append({
                     'name': channel_name,
@@ -367,7 +365,9 @@ async def main():
             local_group_order.append(group)
         for channel in channels:
             if group == '公告':
-                announcement_channels.append(channel)
+                # 公告分组只保留一个频道（去重）
+                if not announcement_channels:
+                    announcement_channels.append(channel)
             elif group != '公告':
                 local_channels_to_check.append(channel)
     
@@ -402,9 +402,9 @@ async def main():
         # 写入 EPG 信息行
         f.write('#EXTM3U x-tvg-url="' + '","'.join(EPG_URLS) + '"\n')
         
-        # === 第一部分：公告（现在会正确显示所有公告频道，都带时间戳）===
+        # === 第一部分：公告（只保留一个"更新时间"子分组）===
         if announcement_channels:
-            f.write('\n# ========== 公告 ==========\n')
+            f.write('\n# 分组：公告\n')
             for ch in announcement_channels:
                 tvg_id = str(abs(hash(ch['name'])) % 10000)
                 extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{ch["name"]}"'
