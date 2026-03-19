@@ -1,6 +1,6 @@
 import subprocess
 import json
-import asyncio
+import asi
 import aiohttp
 import re
 import os
@@ -17,7 +17,7 @@ INPUT_SOURCE = "live.txt"
 
 # 酒店源配置
 HOTEL_SOURCE_URL = "https://raw.githubusercontent.com/gclgg/zubo/main/itvlist.txt"
-HOTEL_MAIN_GROUP = "酒 店 源"
+HOTEL_MAIN_GROUP = "酒店源"
 
 # 你的Logo仓库配置
 LOGO_REPO_OWNER = "gclgg"
@@ -25,10 +25,9 @@ LOGO_REPO_NAME = "live"
 LOGO_PATH_IN_REPO = "tv"
 LOGO_BASE_URL = f"https://raw.githubusercontent.com/{LOGO_REPO_OWNER}/{LOGO_REPO_NAME}/main/{LOGO_PATH_IN_REPO}"
 
-# 分组名称映射（将酒店源中容易混淆的分组改名）
+# 分组名称映射
 GROUP_MAPPING = {
     "央视频道": "央    视",
-    # 如果有其他需要改名的分组，可以在这里添加
 }
 
 USER_AGENTS = [
@@ -44,7 +43,7 @@ EPG_URLS = [
 # 全局logo库
 LOGO_DATABASE = {}
 
-# 通用频道Logo库（作为备用，但我们会优先使用你的仓库）
+# 通用频道Logo库
 COMMON_LOGOS = {
     # 央视系列
     "CCTV1": "https://gcore.jsdelivr.net/gh/yuanzl77/TVlogo@master/png/CCTV1.png",
@@ -100,10 +99,7 @@ def clean_group_name(group_name):
     return re.sub(r',', '', group_name).strip()
 
 async def fetch_my_logo_list():
-    """
-    从你的GitHub仓库获取Logo文件列表，并建立频道名称到URL的映射。
-    假设Logo文件命名规则为：频道名称.png (例如 CCTV1.png)
-    """
+    """从你的GitHub仓库获取Logo文件列表"""
     print(f"\n📡 正在从你的仓库拉取Logo列表: {LOGO_BASE_URL}")
     api_url = f"https://api.github.com/repos/{LOGO_REPO_OWNER}/{LOGO_REPO_NAME}/contents/{LOGO_PATH_IN_REPO}"
     my_logos = {}
@@ -119,14 +115,11 @@ async def fetch_my_logo_list():
                 png_files = [f for f in files if f['name'].lower().endswith('.png')]
                 
                 for file_info in png_files:
-                    # 提取文件名（不含扩展名）作为频道名
-                    channel_name = file_info['name'][:-4]  # 去掉末尾的 .png
-                    # 构建Raw文件的URL
+                    channel_name = file_info['name'][:-4]
                     logo_url = f"{LOGO_BASE_URL}/{file_info['name']}"
                     my_logos[channel_name] = logo_url
                 
                 print(f"✅ 成功获取 {len(my_logos)} 个来自你仓库的Logo")
-                # 打印前几个示例
                 sample_items = list(my_logos.items())[:5]
                 print(f"   示例: {sample_items}")
                 
@@ -136,12 +129,7 @@ async def fetch_my_logo_list():
     return my_logos
 
 async def build_comprehensive_logo_database(m3u_file):
-    """
-    建立完整的logo数据库，优先级：
-    1. 你的GitHub仓库（最高优先级）
-    2. 本地 M3U 文件
-    3. 通用Logo库（作为最后补充）
-    """
+    """建立完整的logo数据库"""
     global LOGO_DATABASE
     LOGO_DATABASE = {}
     
@@ -163,7 +151,6 @@ async def build_comprehensive_logo_database(m3u_file):
                     name_match = re.search(r',([^,]+)$', line)
                     if logo_match and name_match:
                         channel_name = name_match.group(1).strip()
-                        # 如果频道名不在数据库中，才添加（保留你的仓库优先级）
                         if channel_name not in LOGO_DATABASE:
                             LOGO_DATABASE[channel_name] = logo_match.group(1)
                             local_count += 1
@@ -178,11 +165,10 @@ async def build_comprehensive_logo_database(m3u_file):
             LOGO_DATABASE[name] = url
             common_added += 1
     print(f"📦 从通用库补充 {common_added} 个logo")
-    
     print(f"✅ 最终Logo数据库共 {len(LOGO_DATABASE)} 条记录")
 
 def get_logo(channel_name):
-    """获取频道的logo，优先从数据库获取"""
+    """获取频道的logo"""
     return LOGO_DATABASE.get(channel_name, "")
 
 def parse_txt_file(filename, current_time):
@@ -205,9 +191,12 @@ def parse_txt_file(filename, current_time):
                 clean_url = re.sub(r'\$.*$', '', full_url)
                 logo_url = get_logo(channel_name)
                 
-                # 如果是公告分组，更新时间戳
-                if current_group == '公告' and '更新日期' in channel_name:
-                    channel_name = f"更新日期 {current_time}"
+                # 修复：确保公告分组的所有频道都正确显示时间戳
+                if current_group == '公告':
+                    if '更新日期' in channel_name:
+                        channel_name = f"更新日期 {current_time}"
+                    elif '仓库更新时间' in channel_name:
+                        channel_name = f"📦 仓库更新时间 {current_time}"
                 
                 channels_by_group[current_group].append({
                     'name': channel_name,
@@ -221,7 +210,7 @@ def parse_txt_file(filename, current_time):
     return dict(channels_by_group)
 
 async def fetch_hotel_source():
-    """拉取酒店源，完整保留原始结构，并从全局logo库获取logo"""
+    """拉取酒店源"""
     print(f"\n🏨 正在拉取酒店源: {HOTEL_SOURCE_URL}")
     hotel_groups = defaultdict(list)
     hotel_group_order = []
@@ -235,9 +224,7 @@ async def fetch_hotel_source():
                 
                 content = await resp.text()
                 
-                # 解析酒店源的完整内容
                 current_group = None
-                
                 lines = content.strip().split('\n')
                 for line in lines:
                     line = line.strip()
@@ -254,8 +241,6 @@ async def fetch_hotel_source():
                         parts = line.split(',', 1)
                         channel_name = parts[0].strip()
                         channel_url = parts[1].strip()
-                        
-                        # 从全局logo库获取logo
                         logo_url = get_logo(channel_name)
                         
                         hotel_groups[current_group].append({
@@ -264,11 +249,9 @@ async def fetch_hotel_source():
                             'logo': logo_url
                         })
                 
-                # 统计
                 total = sum(len(ch) for ch in hotel_groups.values())
                 print(f"✅ 拉取成功，共 {len(hotel_groups)} 个分组，{total} 个频道")
                 
-                # 统计有logo的频道数量
                 logo_count = sum(1 for group in hotel_groups.values() for ch in group if ch['logo'])
                 if logo_count > 0:
                     print(f"   🖼️ 其中 {logo_count} 个频道已有logo")
@@ -360,35 +343,35 @@ async def main():
     
     print(f"\n🕐 当前时间: {current_time}")
     
-    # 1. 先建立完整的logo数据库（从你的仓库、本地M3U、通用库）
+    # 1. 建立logo数据库
     m3u_file = INPUT_SOURCE.replace('.txt', '.m3u')
     await build_comprehensive_logo_database(m3u_file)
     
-    # 2. 解析本地源（使用已建好的logo库，并传入当前时间更新公告）
+    # 2. 解析本地源
     if not os.path.exists(INPUT_SOURCE):
         print(f"错误：文件 {INPUT_SOURCE} 不存在！")
         return
     
     channels_by_group = parse_txt_file(INPUT_SOURCE, current_time)
     
-    # 3. 拉取酒店源（现在可以使用建好的logo库）
+    # 3. 拉取酒店源
     hotel_groups, hotel_group_order = await fetch_hotel_source()
     
     # 4. 分离公告和需要检测的本地频道
-    announcement = None
+    announcement_channels = []
     local_channels_to_check = []
-    local_group_order = []  # 记录本地分组的原始顺序
+    local_group_order = []
     
     for group, channels in channels_by_group.items():
         if group not in local_group_order:
             local_group_order.append(group)
         for channel in channels:
-            if group == '公   告':
-                announcement = channel
-            elif group != '公   告':
+            if group == '公告':
+                announcement_channels.append(channel)
+            elif group != '公告':
                 local_channels_to_check.append(channel)
     
-    print(f"\n📢 公告: 1 条")
+    print(f"\n📢 公告: {len(announcement_channels)} 条")
     print(f"📺 需要检测的本地频道: {len(local_channels_to_check)} 个")
     
     # 5. 检测本地频道
@@ -419,19 +402,19 @@ async def main():
         # 写入 EPG 信息行
         f.write('#EXTM3U x-tvg-url="' + '","'.join(EPG_URLS) + '"\n')
         
-        # === 第一部分：公告 ===
-        if announcement:
-            f.write('\n# 分组：公   告\n')
-            announcement_name = announcement['name']  # 已经在parse时更新了时间戳
-            tvg_id = str(abs(hash(announcement_name)) % 10000)
-            extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{announcement_name}"'
-            if announcement.get('logo'):
-                extinf += f' tvg-logo="{announcement["logo"]}"'
-            extinf += f' group-title="公   告",{announcement_name}'
-            f.write(extinf + '\n')
-            f.write(announcement['full_url'] + '\n')
+        # === 第一部分：公告（现在会正确显示所有公告频道，都带时间戳）===
+        if announcement_channels:
+            f.write('\n# ========== 公告 ==========\n')
+            for ch in announcement_channels:
+                tvg_id = str(abs(hash(ch['name'])) % 10000)
+                extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{ch["name"]}"'
+                if ch.get('logo'):
+                    extinf += f' tvg-logo="{ch["logo"]}"'
+                extinf += f' group-title="公告",{ch["name"]}'
+                f.write(extinf + '\n')
+                f.write(ch['full_url'] + '\n')
         
-        # === 第二部分：本地有效频道（按原始顺序） ===
+        # === 第二部分：本地有效频道 ===
         if local_by_group:
             f.write('\n# ========== 本地源 ==========\n')
             for group in local_group_order:
@@ -446,15 +429,12 @@ async def main():
                         f.write(extinf + '\n')
                         f.write(ch['full_url'] + '\n')
         
-        # === 第三部分：酒店源（完整保留原始结构） ===
+        # === 第三部分：酒店源 ===
         if hotel_groups and hotel_group_order:
-            # 酒店源大分组标题
             f.write(f'\n# ========== {HOTEL_MAIN_GROUP} [{current_time}] ==========\n')
             
-            # 按原始顺序写入酒店源的各个分组，但修改分组名称以区分本地源
             for group in hotel_group_order:
                 if group in hotel_groups and hotel_groups[group]:
-                    # 分组名称映射：将容易混淆的名称改为更容易区分的名称
                     display_group = GROUP_MAPPING.get(group, group)
                     
                     f.write(f'\n# 分组：{display_group}\n')
@@ -462,7 +442,6 @@ async def main():
                         tvg_id = str(abs(hash(ch['name'])) % 10000)
                         extinf = f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{ch["name"]}"'
                         
-                        # 如果有logo就加上
                         if ch.get('logo'):
                             extinf += f' tvg-logo="{ch["logo"]}"'
                         
@@ -479,7 +458,7 @@ async def main():
     print(f"\n⏱️ 总耗时: {elapsed:.1f} 秒")
     print(f"🕐 更新时间: {current_time}")
     print(f"\n📊 最终文件统计:")
-    print(f"  - 公告: 1 条 (更新时间: {current_time})")
+    print(f"  - 公告: {len(announcement_channels)} 条 (更新时间: {current_time})")
     print(f"  - 本地有效源: {len(valid_local_channels)} 个")
     if hotel_groups:
         print(f"  - {HOTEL_MAIN_GROUP}: {total_hotel} 个频道，{len(hotel_groups)} 个分组")
@@ -489,7 +468,7 @@ async def main():
                 display_group = GROUP_MAPPING.get(group, group)
                 group_logo_count = sum(1 for ch in hotel_groups[group] if ch['logo'])
                 print(f"      {display_group}: {len(hotel_groups[group])} 个频道 ({group_logo_count} 个有logo)")
-    print(f"  - 总计: {len(valid_local_channels) + total_hotel} 个源")
+    print(f"  - 总计: {len(valid_local_channels) + total_hotel + len(announcement_channels)} 个源")
 
 if __name__ == "__main__":
     asyncio.run(main())
