@@ -1,6 +1,6 @@
-# 仓库最后更新时间: 2026-11-02 09:10:05
+# 仓库最后更新时间: 2026-11-03 11:13:10
 公   告,#genre#
-更新时间 2026-11-02 09:10:05,https://vdse.bdstatic.com//a499dfbec34060ce0f380ea789446f07.mp4
+更新时间 2026-11-03 11:13:10,https://vdse.bdstatic.com//a499dfbec34060ce0f380ea789446f07.mp4
 央视频道,#genre#
 CCTV1,http://221.7.175.154:8445/tsfile/live/1000_1.m3u8?key=txiptv&playlive=1&authid=0$LR•IPV4『线路1』
 CCTV1,http://221.205.207.120:9003/hls/1/index.m3u8$LR•IPV4『线路2』
@@ -89,12 +89,11 @@ CCTV3,http://39.164.164.132:9901/tsfile/live/1002_1.m3u8?key=txiptv$LR•IPV4『
 CCTV3,http://183.2.73.18:9901/tsfile/live/0003_1.m3u8?key=txiptv$LR•IPV4『线路22』
 CCTV3,http://61.178.227.57:9901/tsfile/live/0003_1.m3u8?key=txiptv$LR•IPV4『线路23』
 CCTV3,http://101.35.240.114:88/live.php?id=CCTV3$LR•IPV4『线路24』
-CCTV3,http://222.169.85.8:9901/tsfile/live/0003_1.m3u8?key=txiptv&playlive=1&authid=0$LR•IPV4『线路25』
-CCTV3,http://gslbmgsplive.miguvideo.com/wd_r2/2018/ocn/cctv3hd/2000/index.m3u8?msisdn=72dd229ee68d85fd57aed5cc697964ee&mdspid=&spid=699004&netType=0&sid=5500212864&pid=2028597139&timestamp=20261021115026&Channel_ID=0116_2600034600-99000-201600010010028&ProgramID=624878271&ParentNodeID=-99&assertID=5500212864&client_ip=39.103.182.111&SecurityKey=20261021115026&promotionId=&mvid=5100001683&mcid=500020&playurlVersion=WX-A1-9.10.1-SNAPSHOT&userid=&jmhm=&videocodec=h264&appCode=miguvideo_android&bean=mgspad&tid=android&conFee=0&puData=92cd2d9824952700df2e4c8c82a4eec6&ddCalcu=69c2vecaeda42aad2988c284c945e227f0d0&sv=10004&ct=android$LR•IPV4『线路26』
-CCTV3,http://iptv.huuc.edu.cn/hls/cctv3hd.m3u8$LR•IPV4『线路27』
-CCTV3,http://175.8.28.207:9999/tsfile/live/0003_1.m3u8$LR•IPV4『线路28』
-CCTV3,http://t.061899.xyz/tl/tl.php?id=cctv3$LR•IPV4『线路29』
-CCTV3,http://112.27.235.94:8000/hls/3/index.m3u8$LR•IPV4『线路30』
+CCTV3,http://gslbmgsplive.miguvideo.com/wd_r2/2018/ocn/cctv3hd/2000/index.m3u8?msisdn=72dd229ee68d85fd57aed5cc697964ee&mdspid=&spid=699004&netType=0&sid=5500212864&pid=2028597139&timestamp=20261021115026&Channel_ID=0116_2600034600-99000-201600010010028&ProgramID=624878271&ParentNodeID=-99&assertID=5500212864&client_ip=39.103.182.111&SecurityKey=20261021115026&promotionId=&mvid=5100001683&mcid=500020&playurlVersion=WX-A1-9.10.1-SNAPSHOT&userid=&jmhm=&videocodec=h264&appCode=miguvideo_android&bean=mgspad&tid=android&conFee=0&puData=92cd2d9824952700df2e4c8c82a4eec6&ddCalcu=69c2vecaeda42aad2988c284c945e227f0d0&sv=10004&ct=android$LR•IPV4『线路25』
+CCTV3,http://iptv.huuc.edu.cn/hls/cctv3hd.m3u8$LR•IPV4『线路26』
+CCTV3,http://175.8.28.207:9999/tsfile/live/0003_1.m3u8$LR•IPV4『线路27』
+CCTV3,http://t.061899.xyz/tl/tl.php?id=cctv3$LR•IPV4『线路28』
+CCTV3,http://112.27.235.94:8000/hls/3/index.m3u8$LR•IPV4『线路29』
 CCTV4,http://221.205.207.120:9003/hls/4/index.m3u8$LR•IPV4『线路1』
 CCTV4,http://117.161.12.116/live/program/live/cctv4hd8m/8000000/mnf.m3u8$LR•IPV4『线路2』
 CCTV4,http://120.224.178.16:9901/tsfile/live/0004_1.m3u8?key=txiptv&playlive=1&authid=0$LR•IPV4『线路3』
@@ -470,19 +469,18 @@ CCTV13,http://112.27.235.94:8000/hls/14/index.m3u8$LR•IPV4『线路39』
 凤凰卫视,http://api.kkitv.itv888.vip:8080/streams/vny1wblsnch/index.m3u8$LR•IPV4『线路5』
 
 影视频道,#genre#
-CHC动作电影,http://38.75.136.137:98/gslb/dsdqpub/chcdz.m3u8?auth=testpub$LR•IPV4『线路1』
-CHC动作电影,http://198.204.228.26/live/chcdz.m3u8$LR•IPV4『线路2』
-CHC动作电影,http://php.jdshipin.com/TVOD/iptv.php?id=chcdzdy$LR•IPV4『线路3』
-CHC动作电影,http://27.17.111.252:8118/udp/239.69.1.242:11094$LR•IPV4『线路4』
-CHC动作电影,http://fxgm.fxjf.work:19901/tsfile/live/1015_1.m3u8$LR•IPV4『线路5』
-CHC动作电影,http://149.88.85.102:1354/cqyx.php?id=chcdz$LR•IPV4『线路6』
-CHC动作电影,http://58.19.38.162:9901/tsfile/live/1005_1.m3u8?key=txiptv&playlive=1&authid=0$LR•IPV4『线路7』
-CHC动作电影,http://101.35.240.114:88/live.php?id=CHC动作电影$LR•IPV4『线路8』
-CHC动作电影,http://192.151.150.154/live/chcdz.m3u8$LR•IPV4『线路9』
-CHC动作电影,http://63.141.230.178:82/gslb/zbdq5.m3u8?id=chcdz$LR•IPV4『线路10』
-CHC动作电影,http://204.12.221.218:8181/3m1080p/chcdz.m3u8$LR•IPV4『线路11』
-CHC动作电影,http://69.30.245.50/live/chcdz.m3u8$LR•IPV4『线路12』
-CHC动作电影,http://t.061899.xyz/tl/tl.php?id=chcdzdy$LR•IPV4『线路13』
+CHC动作电影,http://php.jdshipin.com/TVOD/iptv.php?id=chcdzdy$LR•IPV4『线路1』
+CHC动作电影,http://27.17.111.252:8118/udp/239.69.1.242:11094$LR•IPV4『线路2』
+CHC动作电影,http://fxgm.fxjf.work:19901/tsfile/live/1015_1.m3u8$LR•IPV4『线路3』
+CHC动作电影,http://149.88.85.102:1354/cqyx.php?id=chcdz$LR•IPV4『线路4』
+CHC动作电影,http://58.19.38.162:9901/tsfile/live/1005_1.m3u8?key=txiptv&playlive=1&authid=0$LR•IPV4『线路5』
+CHC动作电影,http://101.35.240.114:88/live.php?id=CHC动作电影$LR•IPV4『线路6』
+CHC动作电影,http://198.204.228.26/live/chcdz.m3u8$LR•IPV4『线路7』
+CHC动作电影,http://192.151.150.154/live/chcdz.m3u8$LR•IPV4『线路8』
+CHC动作电影,http://63.141.230.178:82/gslb/zbdq5.m3u8?id=chcdz$LR•IPV4『线路9』
+CHC动作电影,http://204.12.221.218:8181/3m1080p/chcdz.m3u8$LR•IPV4『线路10』
+CHC动作电影,http://69.30.245.50/live/chcdz.m3u8$LR•IPV4『线路11』
+CHC动作电影,http://t.061899.xyz/tl/tl.php?id=chcdzdy$LR•IPV4『线路12』
 CHC高清电影,http://27.17.111.252:8118/udp/239.69.1.241:11088$LR•IPV4『线路1』
 CHC家庭影院,http://107.150.60.122/live/chcjt.m3u8$LR•IPV4『线路1』
 CHC家庭影院,http://38.75.136.137:98/gslb/dsdqpub/chcjt.m3u8?auth=testpub$LR•IPV4『线路2』
